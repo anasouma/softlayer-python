@@ -5,32 +5,22 @@ LoadBalancer management
 
 The available commands are:
 
-Local & global load balancer
   cancel           Cancel an existing load balancer
   create           Create a new load balancer
   create-options   Lists the different packages for load balancers
   detail           Provide details about a particular load balancer
+  group-add        Add a new service group in the load balancer
+  group-delete     Delete a service group from the load balancer
+  group-edit       Edit the properties of a service group
+  group-reset      Resets all the connections on a service group
   health-checks    List the different health check values
   list             List active load balancers (--local | --global)
   routing-methods  List supported routing methods
   routing-types    List supported routing types
-
-Local load balancer
-
-  group_add        Add a new service group in the load balancer
-  group-delete     Delete a service group from the load balancer
-  group-edit       Edit the properties of a service group
-  group-reset      Resets all the connections on a service group
   service-add      Add a service to an existing service group
   service-delete   Delete an existing service
   service-edit     Edit an existing service
   service-toggle   Toggle the status of the service
-
-Global load balancer
-
-  host-add        Add a new service group in the load balancer
-  host-delete     Add a new service group in the load balancer
-  host-cancel     Add a new service group in the load balancer
 
 """
 # :license: MIT, see LICENSE for more details.
@@ -39,41 +29,6 @@ from SoftLayer import LoadBalancerManager
 from SoftLayer.CLI import (CLIRunnable, Table, resolve_id,
                            confirm, KeyValueTable)
 from SoftLayer.CLI.helpers import CLIAbort
-
-
-def get_global_lb_table(load_balancer):
-    """ Helper package to display the detail of a global loadbal.
-
-    :param dict load_balancer: A dictionary representing a single loadbal
-    :returns: A table containing the global load balancers
-    """
-
-    t = KeyValueTable(['Name', 'Value'])
-    t.align['Name'] = 'l'
-    t.align['Value'] = 'l'
-    t.add_row(['General properties', '----------'])
-    t.add_row([' ID', 'global:%s' % load_balancer['id']])
-    t.add_row([' hostname', load_balancer['hostname']])
-    t.add_row([' Fallback IP', load_balancer.get('fallbackIp') or 'None'])
-    t.add_row([' Method', load_balancer['loadBalanceType']['name']])
-    t.add_row([' Connections/sec', load_balancer['connectionsPerSecond']])
-
-    t2 = Table(['ID', 'Destination IP', 'Health Check', 'Port', 'Location',
-                'Enabled', 'Hits', 'Status'])
-    for destination in load_balancer['hosts']:
-        t2.add_row([
-            '%s:%s' % (load_balancer['id'], destination['id']),
-            destination['destinationIp'],
-            destination['healthCheck'],
-            destination['destinationPort'],
-            destination['location'].split('.')[0],
-            'Yes' if destination['enabled'] == 1 else 'No',
-            destination.get('hits') or 0.0,
-            destination.get('status') or 'N/A'
-        ])
-    t.add_row([' Hosts', t2])
-
-    return t
 
 
 def get_local_lbs_table(load_balancers):
@@ -124,7 +79,6 @@ def get_local_lb_table(load_balancer):
     :param dict load_balancer: A dictionary representing the loadbal
     :returns: A table containing the local loadbal details
     """
-
     t = KeyValueTable(['Name', 'Value'])
     t.align['Name'] = 'l'
     t.align['Value'] = 'l'
@@ -177,36 +131,11 @@ def get_local_lb_table(load_balancer):
     return t
 
 
-def get_global_lbs_table(load_balancers):
-    """ Helper package to format the global load balancers into a table.
-
-    :param dict load_balancers: A dictionary representing the load_balancers
-    :returns: A table containing the global load balancers
-    """
-    t = Table(['id',
-               'hostname',
-               'Fallback IP',
-               'Method',
-               'Connections/sec'])
-
-    for load_balancer in load_balancers:
-        t.add_row(['global:%s' % load_balancer['id'],
-                   load_balancer['hostname'],
-                   load_balancer.get('fallbackIp') or 'None',
-                   load_balancer['loadBalanceType']['name'],
-                   load_balancer['connectionsPerSecond']])
-
-    return t
-
-
 class LoadBalancerList(CLIRunnable):
     """
-usage: sl loadbal list (--local | --global) [options]
+usage: sl loadbal list [options]
 
-List active load balancers
-Required:
-  --local     list local load balancers
-  --global    list global load balancers
+List active local load balancers
 
 """
     action = 'list'
@@ -214,15 +143,8 @@ Required:
     def execute(self, args):
         mgr = LoadBalancerManager(self.client)
 
-        if args['--local']:
-            load_balancers = mgr.get_local_lbs()
-            return get_local_lbs_table(load_balancers)
-
-        if args['--global']:
-            load_balancers = mgr.get_global_lbs()
-            return get_global_lbs_table(load_balancers)
-
-        return
+        load_balancers = mgr.get_local_lbs()
+        return get_local_lbs_table(load_balancers)
 
 
 class LoadBalancerHealthChecks(CLIRunnable):
@@ -303,16 +225,10 @@ Get Load balancer details
         input_id = args.get('<identifier>')
 
         key_value = input_id.split(':')
-        lb_type = key_value[0]
         loadbal_id = int(key_value[1])
 
-        if lb_type == 'local':
-            load_balancer = mgr.get_local_lb(loadbal_id)
-            return get_local_lb_table(load_balancer)
-        if lb_type == 'global':
-            load_balancer = mgr.get_global_lb(loadbal_id)
-            return get_global_lb_table(load_balancer)
-        return
+        load_balancer = mgr.get_local_lb(loadbal_id)
+        return get_local_lb_table(load_balancer)
 
 
 class LoadBalancerCancel(CLIRunnable):
@@ -569,8 +485,7 @@ Resets the connections on a certain service group
 
 class LoadBalancerServiceGroupAdd(CLIRunnable):
     """
-usage: sl loadbal group-add <identifier> --allocation=ALLOC --port=PORT
-                  --routing_type=TYPE --routing_method=METHOD [options]
+usage: sl loadbal group-add <identifier> --allocation=ALLOC --port=PORT --routing_type=TYPE --routing_method=METHOD [options]
 
 Adds a new load_balancer service
 Required:
@@ -603,8 +518,7 @@ Required:
 
 class LoadBalancerCreate(CLIRunnable):
     """
-usage: sl loadbal create <identifier> (--datacenter=DC) [--hostname=HOSTNAME]
-                         [--domain=DOMAIN] [options]
+usage: sl loadbal create <identifier> (--datacenter=DC) [options]
 
 Adds a load_balancer given the billing id returned from create-options
 
@@ -615,9 +529,6 @@ Required:
 
 Options:
   --really     Whether to skip the confirmation prompt
-  --global     Whether the load balancer being ordered is global
-  --hostname=HOSTNAME   The hostname to use for the global load balancer
-  --domain=DOMAIN     The domain to use for the global load balancer
 """
     action = 'create'
     options = ['really']
@@ -629,13 +540,7 @@ Options:
         if not confirm("This action will incur charges on your account. "
                        "Continue?"):
             raise CLIAbort('Aborted.')
-        if args.get('--global'):
-            mgr.add_global_lb(input_id,
-                              datacenter=args['--datacenter'],
-                              hostname=args['--hostname'],
-                              domain=args['--domain'])
-        else:
-            mgr.add_local_lb(input_id, datacenter=args['--datacenter'])
+        mgr.add_local_lb(input_id, datacenter=args['--datacenter'])
         return "Load balancer is being created!"
 
 
@@ -669,114 +574,3 @@ Output available options when adding a new load balancer
             ])
 
         return t
-
-
-class LoadBalancerHostAdd(CLIRunnable):
-    """
-usage: sl loadbal host-add <identifier> --ip=IP --port=PORT [options]
-
-Adds a new load_balancer service
-Required:
---ip=IP       The IP address of the host
---port=PORT   The virtual port number for the group
-
-Options:
-  --order=ORDER        At what order to insert the host  [default: 0].
-  --disable            Enabled by default, specify disable otherwise
-  --health_check=TYPE  Healthcheck type, either tcp or http [default: http]
-  --weight=WEIGHT      The weight to give to the host [default: 1].
-"""
-    action = 'host-add'
-
-    def execute(self, args):
-        mgr = LoadBalancerManager(self.client)
-        input_id = args.get('<identifier>')
-        key_value = input_id.split(':')
-
-        if key_value[0] != 'global':
-            return 'This CLI is only valid for global load balancers'
-
-        loadbal_id = int(key_value[1])
-
-        mgr.add_host(global_loadbal_id=loadbal_id,
-                     ip=args['--ip'],
-                     port=int(args['--port']),
-                     order=int(args['--order']),
-                     health_check=args['--health_check'],
-                     weight=int(args['--weight']),
-                     enabled=(False if args['--disable'] else True))
-
-        return 'Load balancer service group is being added!'
-
-
-class LoadBalancerHostDelete(CLIRunnable):
-    """
-usage: sl loadbal host-delete <identifier> [options]
-
-Cancels an existing load_balancer host
-Options:
-  --really     Whether to skip the confirmation prompt
-
-"""
-    action = 'host-delete'
-    options = ['really']
-
-    def execute(self, args):
-        mgr = LoadBalancerManager(self.client)
-        input_id = args.get('<identifier>')
-
-        key_value = input_id.split(':')
-        loadbal_id = int(key_value[0])
-        host_id = int(key_value[1])
-
-        if args['--really'] or confirm("This action will cancel a host"
-                                       " on your load balancer. Continue?"):
-            mgr.delete_host(loadbal_id, host_id)
-            return 'Host %s is being deleted!' % input_id
-        else:
-            raise CLIAbort('Aborted.')
-
-
-class LoadBalancerHostEdit(CLIRunnable):
-    """
-usage: sl loadbal host-edit <identifier> [--enable|--disable] [options]
-
-Edit a global load balancer host
-
-Options:
-  --health_check=TYPE  The healthcheck type, either tcp or http.
-  --weight=WEIGHT  The weight to give to the host.
-  --ip=IP       The IP address of the host
-  --port=PORT   The virtual port number for the group
-  --enable      Enable the host
-  --disable     Disable the host
-"""
-    action = 'host-edit'
-
-    def execute(self, args):
-        mgr = LoadBalancerManager(self.client)
-        input_id = args.get('<identifier>')
-        key_value = input_id.split(':')
-
-        loadbal_id = int(key_value[0])
-        host_id = int(key_value[1])
-        enabled = -1
-        if args['--enable']:
-            enabled = 1
-        elif args['--disable']:
-            enabled = 0
-
-        # check if any input is provided
-        if not (args['--ip'] or args['--health_check'] or args['--weight'] or
-                args['--port'] or args['--enable'] or args['--disable']):
-            return 'At least one property is required to be changed!'
-
-        mgr.edit_host(loadbal_id=loadbal_id,
-                      host_id=host_id,
-                      ip=args['--ip'],
-                      port=int(args.get('--port') or 0),
-                      health_check=args['--health_check'],
-                      weight=int(args.get('--weight') or 0),
-                      enabled=enabled)
-
-        return 'Load balancer host %s is being updated!' % input_id

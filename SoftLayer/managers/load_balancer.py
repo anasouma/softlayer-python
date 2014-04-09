@@ -11,9 +11,7 @@ from SoftLayer.utils import IdentifierMixin, NestedDict, query_filter
 class LoadBalancerManager(IdentifierMixin, object):
 
     """ Manages load balancers.
-
     :param SoftLayer.API.Client client: the API client instance
-
     """
 
     def __init__(self, client):
@@ -22,11 +20,9 @@ class LoadBalancerManager(IdentifierMixin, object):
         self.prod_pkg = self.client['Product_Package']
         self.lb_svc = self.client['Network_Application_Delivery_Controller_'
                                   'LoadBalancer_VirtualIpAddress']
-        self.glb_svc = self.client['SoftLayer_Network_LoadBalancer_'
-                                   'Global_Account']
 
     def get_lb_pkgs(self):
-        """ Retrieves the load balancer packages, both local and global.
+        """ Retrieves the local load balancer packages
 
         :returns: A dictionary containing the load balancer packages
         """
@@ -38,7 +34,11 @@ class LoadBalancerManager(IdentifierMixin, object):
         kwargs = NestedDict({})
         kwargs['id'] = 0  # look at package id 0
         kwargs['filter'] = _filter.to_dict()
-        return self.prod_pkg.getItems(**kwargs)
+        products = self.prod_pkg.getItems(**kwargs)
+        for product in products:
+            if product['description'].startswith('Global'):
+                products.remove(product)
+        return products
 
     def get_ip_address(self, ip_address=None):
         """ Retrieves the IP address object given the ip address itself
@@ -53,7 +53,7 @@ class LoadBalancerManager(IdentifierMixin, object):
 
         :returns: A dictionary containing the health check types
         """
-        svc = self.client['SoftLayer_Network_Application_Delivery_Controller_'
+        svc = self.client['Network_Application_Delivery_Controller_'
                           'LoadBalancer_Health_Check_Type']
         return svc.getAllObjects()
 
@@ -62,7 +62,7 @@ class LoadBalancerManager(IdentifierMixin, object):
 
         :returns: A dictionary containing the load balancer routing methods
         """
-        svc = self.client['SoftLayer_Network_Application_Delivery_Controller_'
+        svc = self.client['Network_Application_Delivery_Controller_'
                           'LoadBalancer_Routing_Method']
         return svc.getAllObjects()
 
@@ -71,7 +71,7 @@ class LoadBalancerManager(IdentifierMixin, object):
 
         :returns: A dictionary containing the load balancer routing types
         """
-        svc = self.client['SoftLayer_Network_Application_Delivery_Controller_'
+        svc = self.client['Network_Application_Delivery_Controller_'
                           'LoadBalancer_Routing_Type']
         return svc.getAllObjects()
 
@@ -117,30 +117,6 @@ class LoadBalancerManager(IdentifierMixin, object):
         }
         return self.client['Product_Order'].placeOrder(product_order)
 
-    def add_global_lb(self, price_item_id, datacenter, hostname, domain):
-        """ Creates a global loadbal in the specified datacenter
-
-        :param int price_item_id: The price item ID for the load balancer
-        :param string datacenter: The datacenter to create the loadbalancer in
-        :param string hostname: The hostname to create the loadbalancer with
-        :param string domain: The domain to create the loadbalancer with
-
-        :returns: A dictionary containing the product order
-        """
-
-        product_order = {
-            'complexType': 'SoftLayer_Container_Product_Order_Network_'
-                           'LoadBalancer_Global',
-            'quantity': 1,
-            'packageId': 0,
-            'hostname': hostname,
-            'domain': domain,
-            # 'location': datacenter,
-            'prices': [{'id': price_item_id}]
-        }
-
-        return self.client['Product_Order'].placeOrder(product_order)
-
     def get_local_lbs(self):
         """ Returns a list of all local load balancers on the account.
 
@@ -148,16 +124,6 @@ class LoadBalancerManager(IdentifierMixin, object):
         """
         mask = ('mask[loadBalancerHardware[datacenter],ipAddress]')
         return self.account.getAdcLoadBalancers(mask=mask)
-
-    def get_global_lbs(self):
-        """ Returns a list of all global load balancers on the account.
-
-        :returns: A list of all global load balancers on the current account.
-        """
-        mask = ('mask[hostname,loadBalanceType,fallbackIp,id,'
-                'connectionsPerSecond,allowedNumberOfHosts]')
-        results = self.account.getGlobalLoadBalancerAccounts(mask=mask)
-        return results
 
     def get_local_lb(self, loadbal_id, **kwargs):
         """ Returns a specified local load balancer given the id.
@@ -174,18 +140,6 @@ class LoadBalancerManager(IdentifierMixin, object):
                               ' ipAddress]]]]')
 
         return self.lb_svc.getObject(id=loadbal_id, **kwargs)
-
-    def get_global_lb(self, loadbal_id, **kwargs):
-        """ Returns a specified global load balancer given the id.
-        :param int loadbal_id: The id of the load balancer to retrieve
-
-        :returns: A dictionary containing the details of the load balancer
-        """
-        if 'mask' not in kwargs:
-            kwargs['mask'] = ('mask[hostname,loadBalanceType,fallbackIp,'
-                              'id,connectionsPerSecond,allowedNumberOfHosts,'
-                              'hosts]')
-        return self.glb_svc.getObject(id=loadbal_id, **kwargs)
 
     def delete_service(self, loadbal_id, service_id):
         """ Deletes a service from the loadbal_id
@@ -215,7 +169,7 @@ class LoadBalancerManager(IdentifierMixin, object):
         :param int loadbal_id: The id of the loadbal where the service resides
         :param int service_id: The id of the service to delete
         """
-        svc = self.client['SoftLayer_Network_Application_Delivery_Controller_'
+        svc = self.client['Network_Application_Delivery_Controller_'
                           'LoadBalancer_Service']
         return svc.toggleStatus(id=service_id)
 
@@ -224,7 +178,7 @@ class LoadBalancerManager(IdentifierMixin, object):
         """ Edits an existing service properties
         :param int loadbal_id: The id of the loadbal where the service resides
         :param int service_id: The id of the service to edit
-        :param string ip_address: The ip address of the service
+        :param Network_Subnet_IpAddress ip_address: ip address of the service
         :param int port: the port of the service
         :param int enabled: 1 to enable the service, 0 to disable it
         :param int hc_type: The health check type
@@ -241,7 +195,6 @@ class LoadBalancerManager(IdentifierMixin, object):
 
         virtual_servers = self.lb_svc.getVirtualServers(id=loadbal_id,
                                                         **kwargs)
-
         for service in virtual_servers[0]['serviceGroups'][0]['services']:
             if service['id'] == service_id:
                 if enabled != -1:
@@ -372,71 +325,6 @@ class LoadBalancerManager(IdentifierMixin, object):
                                                         **kwargs)
         actual_id = virtual_servers[0]['serviceGroups'][0]['id']
 
-        svc = self.client['SoftLayer_Network_Application_Delivery_Controller'
+        svc = self.client['Network_Application_Delivery_Controller'
                           '_LoadBalancer_Service_Group']
         return svc.kickAllConnections(id=actual_id)
-
-    def add_host(self, global_loadbal_id, ip=None, port=80, weight=1,
-                 health_check='http', enabled=True, order=0):
-        """ Add a host to the global load balancer
-        :param int loadbal_id: The id of the loadbal where the service resides
-        :param string ip: the ip address to set on the host
-        :param int port: the port of the host
-        :param int weight: the weight to set on the host
-        :param int health_check: the health check to set on the host
-        :param int enabled: 1 to enable, 0 to disable
-        :param int order: the order to give to the host
-        """
-        kwargs = NestedDict({})
-        kwargs['mask'] = ('mask[hosts,hostCount]')
-        loadbal = self.glb_svc.getObject(id=global_loadbal_id, **kwargs)
-        for host in loadbal['hosts']:
-            if host['loadBalanceOrder'] >= order:
-                host['loadBalanceOrder'] = host['loadBalanceOrder'] + 1
-        host_template = {
-            'destinationIp': ip,
-            'destinationPort': port,
-            'weight': weight,
-            'healthCheck': health_check,
-            'loadBalanceOrder': order,
-            'enabled': 1 if enabled else 0
-        }
-        loadbal['hosts'].append(host_template)
-        return self.glb_svc.editObject(loadbal, id=global_loadbal_id)
-
-    def delete_host(self, loadbal_id, host_id):
-        """ Delete the host from the global load balancer.
-        :param int loadbal_id: The id of the loadbal where the service resides
-        :param int host_id: The id of the host
-        """
-        svc = self.client['SoftLayer_Network_LoadBalancer_Global_Host']
-
-        return svc.deleteObject(id=host_id)
-
-    def edit_host(self, loadbal_id, host_id, ip=None, port=0, weight=0,
-                  health_check=None, enabled=-1):
-        """ Edits a host in the global load balancer
-        :param int loadbal_id: The id of the loadbal where the service resides
-        :param int host_id: The id of the host
-        :param string ip: the ip address to set on the host
-        :param int port: the port of the host
-        :param int weight: the weight to set on the host
-        :param int health_check: the health check to set on the host
-        :param int enabled: 1 to enable, 0 to disable
-        """
-        kwargs = NestedDict({})
-        kwargs['mask'] = ('mask[hosts,hostCount]')
-        loadbal = self.glb_svc.getObject(id=loadbal_id, **kwargs)
-        for host in loadbal['hosts']:
-            if host['id'] == host_id:
-                if ip:
-                    host['destinationIp'] = ip
-                if port != 0:
-                    host['destinationPort'] = port
-                if weight != 0:
-                    host['weight'] = weight
-                if health_check:
-                    host['healthCheck'] = health_check
-                if enabled != -1:
-                    host['enabled'] = enabled
-        return self.glb_svc.editObject(loadbal, id=loadbal_id)
